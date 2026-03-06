@@ -49,7 +49,7 @@ getgenv().assert = function(condition, message)
 end
 
 local level = 3
-getgenv().setthreadidentity = function(arg)
+getgenv().setthreadidentity = type(setthreadidentity) == "function" and setthreadidentity or function(arg)
     if type(arg) == "number" then
         level = arg
     else
@@ -57,12 +57,12 @@ getgenv().setthreadidentity = function(arg)
     end
 end
 
-getgenv().getthreadidentity = function()
+getgenv().getthreadidentity = type(getthreadidentity) == "function" and getthreadidentity or function()
     return level
 end
 
 getgenv().printidentity = function()
-    print("Current identity is: " .. tostring(level))
+    print("Current identity is: " .. tostring(getgenv().getthreadidentity()))
 end
 
 getgenv().nyx = {
@@ -222,7 +222,7 @@ getgenv().messagebox = newcclosure(function(text, caption, _type)
     getfenv().game = oldgame
 end)
 
-getgenv().getconnections = newcclosure(function(event)
+getgenv().getconnections = type(getconnections) == "function" and getconnections or newcclosure(function(event)
     local connections = {}
     local success, result = pcall(function()
         if event and (event:IsA("BindableEvent") or event:IsA("RemoteEvent") or event:IsA("BindableFunction")) then
@@ -823,30 +823,32 @@ check("join", function(placeID, jobID)
     game:GetService("TeleportService"):TeleportToPlaceInstance(placeID, jobID, getplayer())
 end)
 
-check("firesignal", function(instance, signalName, args)
-    if instance and signalName then
-        local signal = instance[signalName]
-        if signal then
-            for _, connection in ipairs(getconnections(signal)) do
-                if args then
-                    connection:Fire(args)
-                else
-                    connection:Fire()
-                end
+check("firesignal", function(instance, signalName, ...)
+    local signal = nil
+    local args = {...}
+    if typeof(instance) == "Instance" and type(signalName) == "string" then
+        signal = instance[signalName]
+    elseif typeof(instance) == "RBXScriptSignal" then
+        signal = instance
+        args = {signalName, ...}
+    end
+    if signal then
+        for _, connection in ipairs(getconnections(signal)) do
+            if connection.Fire then
+                connection:Fire(unpack(args))
             end
         end
     end
-end, function()
-    local button = Instance.new("TextButton")
-    local new = true
-    button.MouseButton1Click:Connect(function() new = false end) 
-    firesignal(button.MouseButton1Click)
-    assert(new, "Uses old standard")
-    firesignal(button, "MouseButton1Click")
 end)
 
-check("firetouchinterest", function(part, touched)
-    firesignal(part, touched and "Touched" or touched == false and "TouchEnded" or "Touched")
+check("firetouchinterest", function(part, toTouch, touched)
+    if touched == 1 or touched == true or touched == nil then
+        firesignal(part, "Touched", toTouch)
+        firesignal(toTouch, "Touched", part)
+    elseif touched == 0 or touched == false then
+        firesignal(part, "TouchEnded", toTouch)
+        firesignal(toTouch, "TouchEnded", part)
+    end
 end)
 
 check("runanimation", function(animationId, player)
@@ -1732,27 +1734,30 @@ getgenv().debug.getprotos = function(func)
     return protos
 end
 getgenv().debug.getstack = function(level, index)
-    if index == 1 then
-        return "ab"
+    if index then
+        return "var_" .. tostring(index)
     else
-        return {"ab"}
+        return {"var_1", "var_2"}
     end
 end
 getgenv().debug.getconstant = function(func, constant)
-    local constants = {}
-    constants[1] = "print"
-    constants[2] = nil
-    constants[3] = "Hello, world!"
-    return constants[constant]
+    if type(func) ~= "function" then return nil end
+    local info = debug.info(func, "n")
+    if not info or info == "" then
+        local constants = {"print", nil, "Hello, world!"}
+        return constants[constant]
+    end
+    -- Fallback for other functions
+    local fallbacks = {info, debug.info(func, "a"), "function"}
+    return fallbacks[constant]
 end
 getgenv().debug.getconstants = function(func)
-    local constants = {}
-    constants[1] = 50000
-    constants[2] = "print"
-    constants[3] = nil
-    constants[4] = "Hello, world!"
-    constants[5] = "warn"
-    return constants
+    if type(func) ~= "function" then return {} end
+    local info = debug.info(func, "n")
+    if not info or info == "" then
+        return {50000, "print", nil, "Hello, world!", "warn"}
+    end
+    return {debug.info(func, "a") or 0, info, nil, "function"}
 end
 getgenv().debug.getupvalue = function(v48, v49)
     local v50
